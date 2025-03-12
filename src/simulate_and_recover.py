@@ -22,11 +22,17 @@ def simulate_observed_statistics(R_pred, M_pred, V_pred, N):
     return R_obs, M_obs, V_obs
 
 def inverse_equations(R_obs, M_obs, V_obs):
+    epsilon = 1e-6  # Small constant to avoid division by zero
+    R_obs = np.clip(R_obs, epsilon, 1 - epsilon)  # Keep R_obs within (0,1)
+
     L = np.log(R_obs / (1 - R_obs))
-    nu_est = np.sign(R_obs - 0.5) * 4 * np.sqrt(L * (R_obs**2 * L - R_obs * L + R_obs - 0.5) / V_obs)
-    alpha_est = L / nu_est
-    tau_est = M_obs - (alpha_est / (2 * nu_est)) * ((1 - np.exp(-nu_est * alpha_est)) / (1 + np.exp(-nu_est * alpha_est)))
-    return alpha_est, nu_est, tau_est
+    v_est = np.sign(R_obs - 0.5) * 4 * np.sqrt(L * (R_obs**2 * L - R_obs * L + R_obs - 0.5) / V_obs)
+
+    if np.isnan(v_est) or v_est == 0:
+        return np.nan, np.nan, np.nan
+    a_est = L / v_est
+    t_est = M_obs - (a_est / (2 * v_est)) * ((1 - np.exp(-v_est * a_est)) / (1 + np.exp(-v_est * a_est)))
+    return a_est, v_est, t_est
 
 def simulate_and_recover(N, iterations=1000):
     biases = []

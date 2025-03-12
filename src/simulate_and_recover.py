@@ -22,9 +22,8 @@ def simulate_observed_statistics(R_pred, M_pred, V_pred, N):
     return R_obs, M_obs, V_obs
 
 def inverse_equations(R_obs, M_obs, V_obs):
-    epsilon = 1e-6  # Small constant to avoid division by zero
-    R_obs = np.clip(R_obs, epsilon, 1 - epsilon)  # Keep R_obs within (0,1)
-
+    epsilon = 1e-6 
+    R_obs = np.clip(R_obs, epsilon, 1 - epsilon)
     L = np.log(R_obs / (1 - R_obs))
     v_est = np.sign(R_obs - 0.5) * 4 * np.sqrt(L * (R_obs**2 * L - R_obs * L + R_obs - 0.5) / V_obs)
 

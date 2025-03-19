@@ -1,67 +1,79 @@
 import numpy as np
-import scipy.stats as stats
+import random
+import math
 import json
 
-def generate_parameters():
-    alpha = np.random.uniform(0.5, 2)  # Boundary separation
-    nu = np.random.uniform(0.5, 2)  # Drift rate
-    tau = np.random.uniform(0.1, 0.5)  # Non-decision time
-    return alpha, nu, tau
+class SimulateAndRecover:
+    def __init__(self, iterations=1000):
+        self.iterations = iterations
 
-def forward_equations(alpha, nu, tau):
-    y = np.exp(-alpha * nu)
-    R_pred = 1 / (y + 1)
-    M_pred = tau + (alpha / (2 * nu)) * ((1 - y) / (1 + y))
-    V_pred = (alpha / (2 * nu**3)) * (1 - 2 * alpha * nu * y - y**2) / (y + 1)**2
-    return R_pred, M_pred, V_pred
+    def get_model_parameters(self):
+        boundary_sep = random.uniform(0.5, 2)
+        drift_rt = random.uniform(0.5, 2)
+        nondec = random.uniform(0.1, 0.5)
+        return boundary_sep, drift_rt, nondec
 
-def simulate_observed_statistics(R_pred, M_pred, V_pred, N):
-    R_obs = np.random.binomial(N, R_pred) / N
-    M_obs = np.random.normal(M_pred, np.sqrt(V_pred / N))
-    V_obs = np.random.gamma((N - 1) / 2, 2 * V_pred / (N - 1))
-    return R_obs, M_obs, V_obs
+    def predicted_parameters(self, boundary_sep, drift_rt, nondec):
+        y = math.exp(-boundary_sep * drift_rt)
+        r_pred = 1 / (y + 1)
+        m_pred = nondec + ((boundary_sep / (2 * drift_rt)) * ((1 - y) / (1 + y)))
+        v_pred = (boundary_sep / (2 * (math.pow(drift_rt, 3)))) * ((1 - (2 * boundary_sep * drift_rt * y) - (math.pow(y, 2))) / math.pow((y + 1), 2))
+        return r_pred, m_pred, v_pred
 
-def inverse_equations(R_obs, M_obs, V_obs):
-    epsilon = 1e-6 
-    R_obs = np.clip(R_obs, epsilon, 1 - epsilon)
-    L = np.log(R_obs / (1 - R_obs))
-    v_est = np.sign(R_obs - 0.5) * 4 * np.sqrt(L * (R_obs**2 * L - R_obs * L + R_obs - 0.5) / V_obs)
+    def obs_parameters(self, N, r_pred, m_pred, v_pred):
+        epsilon = 1e-8  # Small constant for numerical stability
+        t_obs = np.random.binomial(N, r_pred)  # Binomial distribution for R_obs
+        r_obs = t_obs / N
+        v_obs = np.random.gamma(shape=(N - 1) / 2, scale=(2 * v_pred) / (N - 1))
+        std_dev = np.sqrt(v_pred / N)
+        m_obs = np.random.normal(loc=m_pred, scale=std_dev)
 
-    if np.isnan(v_est) or v_est == 0:
-        return np.nan, np.nan, np.nan
-    a_est = L / v_est
-    t_est = M_obs - (a_est / (2 * v_est)) * ((1 - np.exp(-v_est * a_est)) / (1 + np.exp(-v_est * a_est)))
-    return a_est, v_est, t_est
+        return t_obs, r_obs, v_obs, m_obs
 
-def simulate_and_recover(N, iterations=1000):
-    biases = []
-    squared_errors = []
+    def inverse_eq(self, r_obs, v_obs, m_obs):
+        epsilon = 1e-8  # Small constant to avoid division errors
+        L = math.log(r_obs / (1 - r_obs)) if r_obs != 1 else 1  # Prevent log(0) issue
+        L_sq_robs = L * math.pow(r_obs, 2)
+        L_robs = r_obs * L
+        v_est = np.sign(r_obs - 0.5) * math.pow(L * (L_sq_robs - L_robs + r_obs - 0.5) / (v_obs + epsilon), 1 / 4)
+        a_est = L / v_est
+        term1 = a_est / (2 * v_est)
+        term2 = -(v_est) * (a_est)
+        t_est = m_obs - ((term1) * ((1 - math.exp(term2)) / (1 + math.exp(term2))))
 
-    for _ in range(iterations):
-        alpha, nu, tau = generate_parameters()
-        R_pred, M_pred, V_pred = forward_equations(alpha, nu, tau)
-        R_obs, M_obs, V_obs = simulate_observed_statistics(R_pred, M_pred, V_pred, N)
-        alpha_est, nu_est, tau_est = inverse_equations(R_obs, M_obs, V_obs)
+        return v_est, a_est, t_est
 
-        bias = np.array([alpha_est - alpha, nu_est - nu, tau_est - tau])
-        squared_error = bias**2
+    def n_simulations(self, N):
+        biases = []
+        squared_errors = []
 
-        biases.append(bias)
-        squared_errors.append(squared_error)
+        for _ in range(self.iterations):
+            boundary_sep, drift_rt, nondec = self.get_model_parameters()
+            r_pred, m_pred, v_pred = self.predicted_parameters(boundary_sep, drift_rt, nondec)
+            t_obs, r_obs, v_obs, m_obs = self.obs_parameters(N, r_pred, m_pred, v_pred)
+            v_est, a_est, t_est = self.inverse_eq(r_obs, v_obs, m_obs)
 
-    biases = np.mean(biases, axis=0)
-    squared_errors = np.mean(squared_errors, axis=0)
+            bias = np.array([drift_rt - v_est, boundary_sep - a_est, nondec - t_est])
+            biases.append(bias)
+            squared_errors.append(np.square(bias))
 
-    return biases, squared_errors
+        bias_avg = np.nanmean(biases, axis=0)
+        sq_error_avg = np.nanmean(squared_errors, axis=0)
+
+        return bias_avg, sq_error_avg
 
 def main():
+    obj = SimulateAndRecover(iterations=1000)
+
+    print("N   Biases   Squared Errors")
     results = {}
     for N in [10, 40, 4000]:
-        biases, squared_errors = simulate_and_recover(N)
+        bias_avg, sq_error_avg = obj.n_simulations(N)
         results[N] = {
-            "biases": biases.tolist(),
-            "squared_errors": squared_errors.tolist()
+            "biases": bias_avg.tolist(),
+            "squared_errors": sq_error_avg.tolist()
         }
+        print(N, " ", bias_avg, " ", sq_error_avg)
 
     with open("results.json", "w") as f:
         json.dump(results, f, indent=4)
